@@ -16,12 +16,13 @@ var handleErrors = require('../util/handleErrors');
 var browserSync  = require('browser-sync');
 var debowerify   = require('debowerify');
 var ngAnnotate   = require('browserify-ngannotate');
+var es           = require('event-stream');
 
 // Based on: http://blog.avisi.nl/2014/04/25/how-to-keep-a-fast-build-with-browserify-and-reactjs/
-function buildScript(file) {
+function buildScript(file, outFile) {
 
   var bundler = browserify({
-    entries: config.browserify.entries,
+    entries: [file],
     debug: true,
     cache: {},
     packageCache: {},
@@ -49,17 +50,18 @@ function buildScript(file) {
 
   function rebundle() {
     var stream = bundler.bundle();
-    var createSourcemap = global.isProd && config.browserify.sourcemap;
+    //var createSourcemap = global.isProd && config.browserify.sourcemap;
+    var createSourcemap = config.browserify.sourcemap;
 
-    gutil.log('Rebundle...');
+    gutil.log('Rebundle ' + outFile +'...');
 
     return stream.on('error', handleErrors)
-      .pipe(source(file))
+      .pipe(source(outFile))
       .pipe(gulpif(createSourcemap, buffer()))
-      .pipe(gulpif(createSourcemap, sourcemaps.init()))
-      .pipe(gulpif(global.isProd, streamify(uglify({
-        compress: { drop_console: true }
-      }))))
+      .pipe(gulpif(createSourcemap, sourcemaps.init({debug: !global.isProd})))
+      .pipe(streamify(uglify({
+        compress: { drop_console: global.isProd }
+      })))
       .pipe(gulpif(createSourcemap, sourcemaps.write('./')))
       .pipe(gulp.dest(config.scripts.dest))
       .pipe(gulpif(browserSync.active, browserSync.reload({ stream: true, once: true })));
@@ -71,6 +73,11 @@ function buildScript(file) {
 
 gulp.task('browserify', function() {
 
-  return buildScript('main.js');
+  var files = config.browserify.entries;
+  var tasks = files.map(function(entry, idx) {
+    return buildScript(entry, config.browserify.bundleNames[idx]);
+  });
+
+  return es.merge.apply(null, tasks);
 
 });
